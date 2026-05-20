@@ -1,6 +1,6 @@
 # Breakthrough analyser
 
-Java + Linux CLI analyser and engine for the abstract strategy game
+Analyser and engine for the abstract strategy game
 **Breakthrough** (Dan Troyka, 2000), on an 8×8 board.
 
 ## Build

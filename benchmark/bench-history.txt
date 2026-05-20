@@ -1,0 +1,16 @@
+2026-05-19 baseline: BENCH lm=3937661 au=51508272 rg=15440.9 perft5=6182818
+Breakthrough benchmark
+  warmup       = 500 ms (discarded)
+  per-bench    = 2000 ms
+  random games = 1000
+  perft depth  = 5
+  seed         = 42
+
+Position bank: 26 positions
+  legalMoves/sec      : 9.78M  (19567990 ops in 2.00 s)
+  apply+undo/sec      : 133.87M  (267735552 ops in 2.00 s)
+  random games/sec    : 105.82K  (1000 games, avg 63.9 plies, 0.01 s)
+  perft(5)            : 6182818 leaves in 0.08 s (80.13M leaves/sec)
+
+Compact score line (for diffing across builds):
+BENCH lm=9784010 au=133869949 rg=105818.3 perft5=6182818

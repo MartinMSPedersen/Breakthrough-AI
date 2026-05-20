@@ -1,0 +1,12 @@
+# Sample 8x8 Breakthrough game (illustrative, not a master game).
+# Move tokens are 4 chars: from-square immediately followed by to-square,
+# e.g. b2b3 or e5d4 (captures look the same — no separator).
+# Comments start with '#'. Move numbers and dots are ignored.
+
+ 1. b2b3   g7g6
+ 2. c2c3   f7f6
+ 3. d2d3   e7e6
+ 4. b3c4   f6e5
+ 5. d3d4   e5d4
+ 6. c3d4   g6f5
+ 7. d4d5   f5e4

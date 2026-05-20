@@ -1,0 +1,5 @@
+# Test position: White has an advanced piece on rank 6
+# Format: FEN-like, ranks 8..1 top to bottom, '/'-separated.
+# X = white, O = black, digits = empty squares, trailing W/B = side to move.
+
+OOOOOOOO/OO1OOOOO/8/2X5/8/8/XXX1XXXX/XXXXXXXX W

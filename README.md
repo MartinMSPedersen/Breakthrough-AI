@@ -307,9 +307,4 @@ Options: `-n N` candidates, `-d N` depth, `-g N` games, `-s DIR`
 state directory, `-a WEIGHTS` anchor weights, `-o FILE` output log.
 Run `./verify-finalists.sh -h` for the inline help.
 
-## Layout
-
-```
-```
-
 Game saves go to `saves/` (created on first save).

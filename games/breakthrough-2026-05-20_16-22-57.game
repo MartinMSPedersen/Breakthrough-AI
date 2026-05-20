@@ -1,0 +1,36 @@
+# Breakthrough game (8x8)
+# Saved:     2026-05-20 16:22:57
+# Plies:     60
+# Result:    Black wins on move 30
+# Final FEN: OOO1O1OO/4O3/2X5/8/8/1X1X2OX/1X2X3/X2O2XX W
+
+  1. b2b3 c7c6
+  2. c2c3 d7d6
+  3. d2d3 d6e5
+  4. e2e3 c6d5
+  5. f2f3 b7c6
+  6. g2g3 c6c5
+  7. h2h3 d5d4
+  8. e3d4 e5d4
+  9. c3d4 c5d4
+ 10. d1d2 a7a6
+ 11. c1c2 e7d6
+ 12. c2c3 d6c5
+ 13. b1b2 f7e6
+ 14. e1e2 a6a5
+ 15. f1f2 a5b4
+ 16. f3e4 g7f6
+ 17. c3c4 h7g6
+ 18. e4d5 e6d5
+ 19. c4d5 g6h5
+ 20. f2e3 f6g5
+ 21. e3e4 h5h4
+ 22. e4e5 h4g3
+ 23. e5e6 f8f7
+ 24. a2a3 f7e6
+ 25. d5e6 g5f4
+ 26. a3b4 d4e3
+ 27. d2e3 f4e3
+ 28. e6e7 d8e7
+ 29. b4c5 e3d2
+ 30. c5c6 d2d1

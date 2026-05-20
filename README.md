@@ -1,6 +1,6 @@
 # Breakthrough analyser
 
-Java + Linux CLI analyser and engine for the abstract strategy game
+Analyser and engine for the abstract strategy game
 **Breakthrough** (Dan Troyka, 2000), on an 8×8 board.
 
 ## Build
@@ -306,10 +306,5 @@ that's the one most likely to generalize.
 Options: `-n N` candidates, `-d N` depth, `-g N` games, `-s DIR`
 state directory, `-a WEIGHTS` anchor weights, `-o FILE` output log.
 Run `./verify-finalists.sh -h` for the inline help.
-
-## Layout
-
-```
-```
 
 Game saves go to `saves/` (created on first save).

@@ -1,3 +1,3 @@
 #!/bin/bash
 
-java -cp build Main benchmark --depth 7 
+java -cp build Main benchmark --depth 6

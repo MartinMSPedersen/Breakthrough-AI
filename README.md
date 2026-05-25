@@ -1,6 +1,6 @@
 # Breakthrough analyser
 
-Analyser and engine for the abstract strategy game
+Java + Linux CLI analyser and engine for the abstract strategy game
 **Breakthrough** (Dan Troyka, 2000), on an 8×8 board.
 
 ## Build
@@ -38,6 +38,9 @@ java -cp build Main match \
     --weights-a 5,10,16,26,42,70,120,1000 \
     --weights-b 10,20,30,45,65,90,130,1000 \
     --games 10 --depth 4
+
+# Deep analysis with a larger transposition table
+java -cp build Main analyse --file games/midgame.fen --depth 11 --tt-bits 22
 ```
 
 Or via make: `make play ARGS="--depth 6"`, `make analyse ARGS="--file games/midgame.fen"`, etc.
@@ -175,19 +178,58 @@ ignored; the parser extracts tokens like `b2c3`. Comments use
 - **Hashing** (`Zobrist`): 64-bit Zobrist keys for `(piece, square)`
   pairs and side-to-move. The hash is updated incrementally in
   `Board.apply`/`undo` (XOR is its own inverse), never recomputed.
-- **Transposition table** (`TT`): fixed-size power-of-two table, single
-  slot per index, always-replace. Stores `EXACT` / `LOWER` / `UPPER`
-  bound entries plus a best move for ordering. Default size is `2^20`
-  slots (~1M entries).
+- **Board representation** (`Board`, `Bitboards`): two 64-bit
+  bitboards (one per side). Move generation, winner detection, and
+  apply/undo are all bitboard operations — typically 5-10× faster
+  than the equivalent 2D array work.
+- **Move representation** (`Move`): the public API uses a `Move`
+  record, but the search hot path uses packed 12-bit ints
+  (`(from << 6) | to`) and per-ply pre-allocated `int[]` buffers —
+  zero allocation per generated move.
+- **Transposition table** (`TT`): fixed-size power-of-two table,
+  single slot per index, always-replace. Stores `EXACT` / `LOWER`
+  / `UPPER` bound entries plus a packed best move for ordering.
+  Default size is `2^20` slots (~1M entries, ~32 MB). For deep
+  analysis pass `--tt-bits N` to scale up (see "Transposition
+  table size" below).
+- **Principal Variation Search**: at each node, the first move
+  (highest-ordered) gets a full-window search; subsequent moves
+  get a zero-width scout search first, with full-window re-search
+  only on fail-high. Pays off when ordering is good (which it
+  usually is), giving 20-40% search speedup.
+
+## Transposition table size
+
+The TT is the hottest data structure in the search at deep
+analysis: probed and stored at every interior node, with hit
+rates around 15-25% in typical play. At depth ≤10 the default
+2^20 (1M entries) is fine. At depth 11+ the table fills up and
+useful entries get evicted, hurting the hit rate.
+
+Pass `--tt-bits N` to set the table size to 2^N entries (each
+entry ~32 bytes plus JVM overhead). Supported in `play`,
+`analyse`, `annotate`, and `match`.
+
+| `--tt-bits` | Entries | Approx RAM | Good for |
+|---|---|---|---|
+| 18 | 256 K | 8 MB | small RAM, depth ≤ 7 |
+| 20 (default) | 1 M | 32 MB | depth ≤ 10 |
+| 22 | 4 M | 128 MB | depth 11-12 |
+| 23 | 8 M | 256 MB | depth 12-13 |
+| 24 | 16 M | 512 MB | depth 13-14 |
+| 25-26 | 32-64 M | 1-2 GB | when you have RAM to burn |
+
+For sizes above 22, also pass `-Xmx512m` (or larger) to the
+`java` invocation so the JVM heap can hold the table.
 
 ## Possible extensions
 
 - History heuristic / counter-move heuristic for move ordering of
-  quiets that aren't killers.
+  quiet moves that aren't killers.
+- Late move reductions (LMR) — search later-ordered moves with
+  reduced depth.
+- Aspiration windows around iterative-deepening iterations.
 - Depth-preferred or two-tier TT replacement.
-- Better evaluation: defender count, mobility, threats, phalanx structure.
-- Bitboard representation for faster move generation (biggest single
-  performance speedup left).
 
 ## Benchmark
 
@@ -201,20 +243,25 @@ java -cp build Main benchmark --depth 5    # perft to depth 5
 make bench ARGS="--budget-ms 5000"         # longer per-bench budget
 ```
 
-Four metrics are reported:
+Five metrics are reported:
 
-- **`legalMoves/sec`** — pure move generation cost. The most direct
-  measure of "how fast is `MoveGenerator.legalMoves(b)`".
-- **`apply+undo/sec`** — generate moves + apply each + undo each. This
-  is the inner loop of alpha-beta and tracks what search actually does
-  on every internal node.
+- **`legalMoves/sec`** — pure move generation cost, allocating
+  `List<Move>` per call. Useful as a comparison anchor across
+  implementations but *not* what the search uses.
+- **`generate/sec`** — `MoveGenerator.generate(b, buf)` with a
+  pre-allocated `int[]` buffer. **This is the metric that matches
+  what the search hot path actually does** — typically 5-10× the
+  `legalMoves/sec` rate because there's no allocation.
+- **`apply+undo/sec`** — generate moves + apply each + undo each.
+  Inner loop of alpha-beta.
 - **`random games/sec`** — full random games to termination. Includes
-  generation, apply, winner detection. A rough "games of random play
-  per second" number useful for tuner throughput estimation.
+  generation, apply, winner detection. Useful for tuner throughput
+  estimation.
 - **`perft(N)`** — count of leaves in the full game tree to depth N
   from the starting position. Deterministic — the *count* must match
   across implementations, so it doubles as a correctness check. If a
-  bitboard rewrite changes perft, the new code is wrong.
+  bitboard rewrite or move-gen change makes perft different, the new
+  code is wrong.
 
 Reference numbers for the current Java implementation (one core,
 JDK 21, no GC tuning):
@@ -307,4 +354,31 @@ Options: `-n N` candidates, `-d N` depth, `-g N` games, `-s DIR`
 state directory, `-a WEIGHTS` anchor weights, `-o FILE` output log.
 Run `./verify-finalists.sh -h` for the inline help.
 
+## Layout
+
+```
+breakthrough/
+├── Makefile
+├── README.md
+├── verify-finalists.sh
+├── src/
+│   ├── Main.java
+│   ├── Board.java
+│   ├── Bitboards.java
+│   ├── Move.java
+│   ├── MoveGenerator.java
+│   ├── Evaluator.java
+│   ├── Search.java
+│   ├── Zobrist.java
+│   ├── TT.java
+│   ├── PositionIO.java
+│   ├── GameReplay.java
+│   ├── GameWriter.java
+│   └── Tuner.java
+└── games/
+    ├── sample.game
+    └── midgame.fen
+```
+
 Game saves go to `saves/` (created on first save).
+Tuner state goes to `tuner-state/` (created when `Tuner` first runs).

@@ -41,13 +41,17 @@ public final class Main {
                                        [--weights-w ...] [--weights-b ...]
                                        [--defender-scale F]
                                        [--defender-scale-w F] [--defender-scale-b F]
+                                       [--tt-bits N]
                   breakthrough analyse [--file <position.fen>] [--depth N]
+                                       [--tt-bits N]
                   breakthrough annotate --file <game.txt>      [--depth N] [--start-move N]
+                                       [--tt-bits N]
                   breakthrough match   --weights-a w0,..,w7 --weights-b w0,..,w7
                                        [--depth N] [--games N] [--quiet]
                                        [--noise N] [--seed N]
                                        [--defender-scale F]
                                        [--defender-scale-a F] [--defender-scale-b F]
+                                       [--tt-bits N]
                   breakthrough benchmark [--games N] [--depth N] [--seed N]
                   breakthrough help
 
@@ -68,6 +72,11 @@ public final class Main {
                 Defender scale: a floating-point multiplier. Each piece gets a
                 bonus of (defender_scale * advancement_weight[row] * defenders).
                 Default 0 disables the term. Reasonable values are 0.1 - 0.6.
+
+                Transposition table: --tt-bits N sets the TT size to 2^N
+                entries (each entry ~32 bytes). Default 20 (1M entries, ~32 MB)
+                is fine for depth ≤10. For deeper analysis, try 22 (~128 MB)
+                or 23 (~256 MB). Max 26.
 
                 Defaults:
                   play     depth=5    ai-side=B   (you play White)
@@ -107,6 +116,7 @@ public final class Main {
 
     private static void playCmd(String[] args) {
         int    depth  = intArg(args, "--depth",   5);
+        int    ttBits = intArg(args, "--tt-bits", 20);
         String aiSide = strArg(args, "--ai-side", "B");
 
         // Resolve evaluator(s). --weights sets both sides; --weights-w/-b override per side.
@@ -126,8 +136,8 @@ public final class Main {
                                      : Evaluator.parse(wB, dB);
 
         Board  b         = Board.initial();
-        Search searchW   = new Search(evW);
-        Search searchB   = new Search(evB);
+        Search searchW   = new Search(ttBits, evW);
+        Search searchB   = new Search(ttBits, evB);
         Scanner sc       = new Scanner(System.in);
         List<Move> played = new ArrayList<>();
 
@@ -231,8 +241,9 @@ public final class Main {
     }
 
     private static void analyseCmd(String[] args) throws IOException {
-        String file  = strArg(args, "--file",  null);
-        int    depth = intArg(args, "--depth", 6);
+        String file   = strArg(args, "--file",    null);
+        int    depth  = intArg(args, "--depth",   6);
+        int    ttBits = intArg(args, "--tt-bits", 20);
 
         Board b = (file != null) ? PositionIO.load(Paths.get(file)) : Board.initial();
         b.print(System.out);
@@ -252,7 +263,7 @@ public final class Main {
 
         if (legal.isEmpty() || b.winner() != Board.EMPTY) return;
 
-        Search s   = new Search();
+        Search s   = new Search(ttBits, Evaluator.defaults());
         long   t0  = System.currentTimeMillis();
         Search.Result r = s.findBest(b, depth);
         long ms    = System.currentTimeMillis() - t0;
@@ -265,6 +276,7 @@ public final class Main {
         String file      = strArg(args, "--file",       null);
         int    depth     = intArg(args, "--depth",      4);
         int    startMove = intArg(args, "--start-move", 1);
+        int    ttBits    = intArg(args, "--tt-bits",    20);
         if (file == null) { System.err.println("--file is required for annotate"); System.exit(2); }
         if (startMove < 1) { System.err.println("--start-move must be >= 1"); System.exit(2); }
 
@@ -277,7 +289,7 @@ public final class Main {
         }
 
         Board b = Board.initial();
-        Search engine = new Search();
+        Search engine = new Search(ttBits, Evaluator.defaults());
 
         // Fast-forward: silently apply plies for pairs 1 .. (startMove-1).
         // Each pair is up to 2 plies; (startMove - 1) full pairs == 2 * (startMove - 1) plies.
@@ -370,6 +382,7 @@ public final class Main {
         }
         int    depth    = intArg(args, "--depth", 4);
         int    games    = intArg(args, "--games", 10);
+        int    ttBits   = intArg(args, "--tt-bits", 20);
         int    noise    = intArg(args, "--noise", 4);
         long   baseSeed = longArg(args, "--seed", System.nanoTime());
         boolean quiet   = hasFlag(args, "--quiet");
@@ -400,8 +413,8 @@ public final class Main {
             // so two games with the same color assignment still diverge.
             long seedW = baseSeed ^ ((long)g << 1)       ^ 0xA1B2C3D4E5F60718L;
             long seedB = baseSeed ^ (((long)g << 1) | 1) ^ 0x123456789ABCDEF0L;
-            Search   sw = new Search(20, evW,  noise, seedW);
-            Search   sb = new Search(20, evB_, noise, seedB);
+            Search   sw = new Search(ttBits, evW,  noise, seedW);
+            Search   sb = new Search(ttBits, evB_, noise, seedB);
 
             Board       board  = Board.initial();
             List<Move>  played = new ArrayList<>();

@@ -150,6 +150,44 @@ fn gen_moves(b: &Board, dst: &mut [u16; 64]) -> usize {
     n
 }
 
+/// Quiescence move set: captures PLUS quiet "winning pushes" (non-capture
+/// moves landing on the opponent's home rank — Breakthrough's promotions).
+/// A capture-only quiescence is unsound here: the winning move is usually
+/// quiet, so a runner one step from the goal would be invisible at the
+/// horizon.
+fn gen_quiescence(b: &Board, dst: &mut [u16; 64]) -> usize {
+    let own = b.own();
+    let opp = b.opp();
+    let empty = !(own | opp);
+    let mut n = 0usize;
+    if b.side == WHITE {
+        // Captures (diagonal onto an enemy piece).
+        let dl = ((own & NOT_FILE_A) << 7) & opp;
+        let dr = ((own & NOT_FILE_H) << 9) & opp;
+        n = emit(dst, n, dl, -7);
+        n = emit(dst, n, dr, -9);
+        // Winning pushes: quiet moves onto rank 8.
+        let fwd = (own << 8) & empty & RANK_8;
+        let pdl = ((own & NOT_FILE_A) << 7) & empty & RANK_8;
+        let pdr = ((own & NOT_FILE_H) << 9) & empty & RANK_8;
+        n = emit(dst, n, fwd, -8);
+        n = emit(dst, n, pdl, -7);
+        n = emit(dst, n, pdr, -9);
+    } else {
+        let dl = ((own & NOT_FILE_H) >> 7) & opp;
+        let dr = ((own & NOT_FILE_A) >> 9) & opp;
+        n = emit(dst, n, dl, 7);
+        n = emit(dst, n, dr, 9);
+        let fwd = (own >> 8) & empty & RANK_1;
+        let pdl = ((own & NOT_FILE_H) >> 7) & empty & RANK_1;
+        let pdr = ((own & NOT_FILE_A) >> 9) & empty & RANK_1;
+        n = emit(dst, n, fwd, 8);
+        n = emit(dst, n, pdl, 7);
+        n = emit(dst, n, pdr, 9);
+    }
+    n
+}
+
 // ---- Evaluation -------------------------------------------------------------
 
 /// Evaluate from the side-to-move's perspective.
@@ -268,7 +306,7 @@ impl Searcher {
             return if w == b.side { WIN_SCORE - ply as i32 } else { -(WIN_SCORE - ply as i32) };
         }
         if depth == 0 {
-            return evaluate(b);
+            return self.quiesce(b, alpha, beta, ply);
         }
 
         // Stack-allocated move list: no heap allocation in the search.
@@ -357,6 +395,63 @@ impl Searcher {
         };
 
         best_score
+    }
+
+    /// Quiescence: resolve captures and winning pushes before trusting the
+    /// static eval, so the horizon can't hide "I push forward and immediately
+    /// get captured" (or "...and immediately win"). Stand-pat lets a side
+    /// decline bad captures.
+    fn quiesce(&mut self, b: &mut Board, mut alpha: i32, beta: i32, ply: usize) -> i32 {
+        self.nodes += 1;
+        self.check_time();
+        if self.timed_out { return alpha; }
+
+        let w = b.winner();
+        if w != 2 {
+            return if w == b.side { WIN_SCORE - ply as i32 } else { -(WIN_SCORE - ply as i32) };
+        }
+        // Depth guard: capture chains are finite (each removes a piece), but
+        // cap ply for safety.
+        if ply >= 120 {
+            return evaluate(b);
+        }
+
+        let stand_pat = evaluate(b);
+        if stand_pat >= beta { return beta; }
+        if stand_pat > alpha { alpha = stand_pat; }
+
+        let mut moves = [0u16; 64];
+        let n = gen_quiescence(b, &mut moves);
+        if n == 0 { return alpha; }
+
+        // Order by advancement (goal-ward moves first) with lazy selection.
+        let side = b.side;
+        let mut scores = [0i32; 64];
+        for i in 0..n {
+            scores[i] = advance_bonus(side, moves[i]);
+        }
+
+        for i in 0..n {
+            let mut max_idx = i;
+            let mut max_val = scores[i];
+            for j in (i + 1)..n {
+                if scores[j] > max_val { max_val = scores[j]; max_idx = j; }
+            }
+            if max_idx != i {
+                moves.swap(i, max_idx);
+                scores.swap(i, max_idx);
+            }
+            let m = moves[i];
+
+            let cap = b.apply(m);
+            let s = -self.quiesce(b, -beta, -alpha, ply + 1);
+            b.undo(m, cap);
+
+            if self.timed_out { return alpha; }
+            if s >= beta { return beta; }
+            if s > alpha { alpha = s; }
+        }
+        alpha
     }
 
     /// Iterative deepening with a wall-clock deadline. Returns the best move
@@ -508,7 +603,7 @@ fn main() {
         let budget = if first_turn {
             std::time::Duration::from_millis(800)
         } else {
-            std::time::Duration::from_millis(75)
+            std::time::Duration::from_millis(50)
         };
 
         let mut chosen = searcher.search(&mut board, start, budget);

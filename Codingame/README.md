@@ -15,8 +15,12 @@ several plies deep well within budget.
 
 - **Bitboards** — two `u64`s, one per colour. Move = `(from << 6) | to`.
 - **Search** — negamax + alpha-beta + iterative deepening, with a
-  transposition table (kept across turns), killer-move ordering, and
-  principal-variation search.
+  transposition table (kept across turns), killer-move ordering,
+  principal-variation search, and a **quiescence search** at the horizon
+  that resolves captures and winning pushes before trusting the static
+  eval. Without it, the advancement-heavy evaluation makes the bot push
+  runners forward into captures it can't see past the horizon — the classic
+  horizon effect, and a real lost-games cause before this was added.
 - **Time management** — iterative deepening runs until a wall-clock deadline
   and returns the best move from the last fully-completed depth. Budgets are
   deliberately conservative to avoid ever losing on time:

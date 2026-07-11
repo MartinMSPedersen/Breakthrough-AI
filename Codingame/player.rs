@@ -603,7 +603,7 @@ fn main() {
         let budget = if first_turn {
             std::time::Duration::from_millis(800)
         } else {
-            std::time::Duration::from_millis(50)
+            std::time::Duration::from_millis(75)
         };
 
         let mut chosen = searcher.search(&mut board, start, budget);

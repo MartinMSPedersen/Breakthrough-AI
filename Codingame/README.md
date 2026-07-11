@@ -26,7 +26,15 @@ several plies deep well within budget.
   so it wouldn't finish anyway).
 - **Transposition table** — fixed-size array (2^20 entries), direct-mapped,
   full-key checked, persisted across turns. No allocation or rehashing during
-  search, so timing is predictable (a `HashMap` caused latency spikes).
+  search, so timing is predictable (a `HashMap` caused latency spikes — its
+  SipHash hashing is far too slow for per-node probes anyway).
+- **Zero heap allocation in the search** — move lists and ordering scores live
+  in fixed stack arrays (`[u16; 64]` / `[i32; 64]`) per recursion frame; the
+  allocator is never touched inside negamax.
+- **Lazy selection ordering** — instead of sorting the whole move list at
+  every node, the best-scored remaining move is swapped into place just
+  before it's searched. On an early beta cutoff (the common case with good
+  ordering) the rest of the list is never sorted at all.
 - **Board sync** — the bot tracks its own board: it applies the opponent's
   move (given each turn), searches, then applies its own reply.
 - **Safety net** — the contest supplies the legal-move list each turn; the bot

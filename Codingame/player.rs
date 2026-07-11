@@ -114,36 +114,40 @@ impl Board {
 // ---- Move generation --------------------------------------------------------
 
 #[inline]
-fn emit(dst: &mut Vec<u16>, mut targets: u64, from_offset: i32) {
+fn emit(dst: &mut [u16; 64], mut idx: usize, mut targets: u64, from_offset: i32) -> usize {
     while targets != 0 {
         let to = targets.trailing_zeros() as i32;
         let from = (to + from_offset) as u16;
-        dst.push(((from as u16) << 6) | (to as u16));
+        dst[idx] = ((from as u16) << 6) | (to as u16);
+        idx += 1;
         targets &= targets - 1;
     }
+    idx
 }
 
-/// All legal moves for the side to move.
-fn gen_moves(b: &Board, dst: &mut Vec<u16>) {
-    dst.clear();
+/// All legal moves for the side to move, written into `dst`. Returns count.
+/// Max possible is well under 64 (16 pieces x 3 directions = 48).
+fn gen_moves(b: &Board, dst: &mut [u16; 64]) -> usize {
     let own = b.own();
     let opp = b.opp();
     let empty = !(own | opp);
+    let mut n = 0usize;
     if b.side == WHITE {
         let fwd = (own << 8) & empty;
         let dl = ((own & NOT_FILE_A) << 7) & (empty | opp);
         let dr = ((own & NOT_FILE_H) << 9) & (empty | opp);
-        emit(dst, fwd, -8);
-        emit(dst, dl, -7);
-        emit(dst, dr, -9);
+        n = emit(dst, n, fwd, -8);
+        n = emit(dst, n, dl, -7);
+        n = emit(dst, n, dr, -9);
     } else {
         let fwd = (own >> 8) & empty;
         let dl = ((own & NOT_FILE_H) >> 7) & (empty | opp);
         let dr = ((own & NOT_FILE_A) >> 9) & (empty | opp);
-        emit(dst, fwd, 8);
-        emit(dst, dl, 7);
-        emit(dst, dr, 9);
+        n = emit(dst, n, fwd, 8);
+        n = emit(dst, n, dl, 7);
+        n = emit(dst, n, dr, 9);
     }
+    n
 }
 
 // ---- Evaluation -------------------------------------------------------------
@@ -267,33 +271,48 @@ impl Searcher {
             return evaluate(b);
         }
 
-        let mut moves = Vec::with_capacity(48);
-        gen_moves(b, &mut moves);
-        if moves.is_empty() {
+        // Stack-allocated move list: no heap allocation in the search.
+        let mut moves = [0u16; 64];
+        let n = gen_moves(b, &mut moves);
+        if n == 0 {
             return -(WIN_SCORE - ply as i32);
         }
 
-        // Move ordering scores.
+        // Ordering scores, computed once into a stack array.
         let side = b.side;
         let opp = b.opp();
         let k0 = self.killers[ply][0];
         let k1 = self.killers[ply][1];
-        let mut scored: Vec<(i32, u16)> = moves.iter().map(|&m| {
+        let mut scores = [0i32; 64];
+        for i in 0..n {
+            let m = moves[i];
             let to = (m & 0x3f) as u32;
             let is_cap = opp & (1u64 << to) != 0;
-            let s = if m == tt_move { 1_000_000 }
-                    else if is_cap { 10_000 + advance_bonus(side, m) }
-                    else if m == k0 { 900 }
-                    else if m == k1 { 800 }
-                    else { advance_bonus(side, m) };
-            (s, m)
-        }).collect();
-        scored.sort_unstable_by(|a, c| c.0.cmp(&a.0));
+            scores[i] = if m == tt_move { 1_000_000 }
+                        else if is_cap { 10_000 + advance_bonus(side, m) }
+                        else if m == k0 { 900 }
+                        else if m == k1 { 800 }
+                        else { advance_bonus(side, m) };
+        }
 
         let mut best_score = -MAX_SCORE;
-        let mut best_move = scored[0].1;
+        let mut best_move = moves[0];
         let mut first = true;
-        for (_, m) in scored {
+        for i in 0..n {
+            // Lazy selection sort: swap the best-scored remaining move into
+            // position i just before searching it. On an early beta cutoff the
+            // rest of the list is never sorted at all.
+            let mut max_idx = i;
+            let mut max_val = scores[i];
+            for j in (i + 1)..n {
+                if scores[j] > max_val { max_val = scores[j]; max_idx = j; }
+            }
+            if max_idx != i {
+                moves.swap(i, max_idx);
+                scores.swap(i, max_idx);
+            }
+            let m = moves[i];
+
             let cap = b.apply(m);
             let s;
             if first {
@@ -348,9 +367,9 @@ impl Searcher {
         self.timed_out = false;
         self.nodes = 0;
 
-        let mut root_moves = Vec::with_capacity(48);
-        gen_moves(b, &mut root_moves);
-        if root_moves.is_empty() {
+        let mut root_moves = [0u16; 64];
+        let n = gen_moves(b, &mut root_moves);
+        if n == 0 {
             return 0;
         }
         let mut best = root_moves[0];
@@ -372,11 +391,17 @@ impl Searcher {
             let mut local_best = best;
             let mut best_score = -MAX_SCORE;
 
-            // Try the previous-best move first for better pruning.
-            root_moves.sort_by_key(|&m| if m == best { 0 } else { 1 });
+            // Move the previous-best move to the front for better pruning.
+            for i in 0..n {
+                if root_moves[i] == best {
+                    root_moves.swap(0, i);
+                    break;
+                }
+            }
 
             let mut aborted = false;
-            for &m in &root_moves {
+            for i in 0..n {
+                let m = root_moves[i];
                 let cap = b.apply(m);
                 let s = -self.negamax(b, depth - 1, 1, -beta, -alpha);
                 b.undo(m, cap);
@@ -483,7 +508,7 @@ fn main() {
         let budget = if first_turn {
             std::time::Duration::from_millis(800)
         } else {
-            std::time::Duration::from_millis(50)
+            std::time::Duration::from_millis(75)
         };
 
         let mut chosen = searcher.search(&mut board, start, budget);
